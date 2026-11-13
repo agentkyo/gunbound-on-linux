@@ -4,15 +4,28 @@ set -euo pipefail
 REPO="agentkyo/gunbound-on-linux"
 SITE="https://gunbound.gg"
 DLL_URL="https://github.com/$REPO/releases/latest/download/ncrypt.dll"
+# Portable Wine used when the system can't provide Wine 10+ (immutable distros
+# such as Bazzite, Silverblue, SteamOS, or unknown package managers).
+PORTABLE_WINE_VERSION="11.21"
+PORTABLE_WINE_FILE="wine-$PORTABLE_WINE_VERSION-amd64-wow64.tar.xz"
+PORTABLE_WINE_URL="https://github.com/Kron4ek/Wine-Builds/releases/download/$PORTABLE_WINE_VERSION/$PORTABLE_WINE_FILE"
+PORTABLE_WINE_SHA256="33f3c5b56b1deb8f6725539ea006f27b5d781b3b4ae6a8a1f492d8af4fb9dc83"
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export WINEPREFIX="${WINEPREFIX:-$HOME/Games/gunbound}"
 export WINEARCH=win64
 export WINEDEBUG="${WINEDEBUG:--all}"
-wine="${WINE:-wine}"
 game_win='C:\GunBound'
 game_dir="$WINEPREFIX/drive_c/GunBound"
 data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/gunbound-linux"
+portable_dir="$data_dir/wine"
+if [[ -n "${WINE:-}" ]]; then
+    wine="$WINE"
+elif [[ -x "$portable_dir/bin/wine" ]]; then
+    wine="$portable_dir/bin/wine"
+else
+    wine=wine
+fi
 desktop_file="${XDG_DATA_HOME:-$HOME/.local/share}/applications/gunbound-linux.desktop"
 
 case "${LC_ALL:-${LC_MESSAGES:-${LANG:-en}}}" in
@@ -113,6 +126,27 @@ t() {
         cancelled) en="Cancelled."
                    pt="Cancelado."
                    es="Cancelado." ;;
+        immutable) en="Immutable system detected (%s). System packages will not be changed; using a portable Wine instead."
+                   pt="Sistema imutável detectado (%s). Os pacotes do sistema não serão alterados; será usado um Wine portátil."
+                   es="Sistema inmutable detectado (%s). No se modificarán los paquetes del sistema; se usará un Wine portátil." ;;
+        pkgfail) en="Could not install Wine 10 or newer with the package manager. Using a portable Wine instead."
+                 pt="Não foi possível instalar o Wine 10 ou mais novo pelo gerenciador de pacotes. Será usado um Wine portátil."
+                 es="No se pudo instalar Wine 10 o más reciente con el gestor de paquetes. Se usará un Wine portátil." ;;
+        portable) en="Downloading portable Wine %s (about 100 MB) into %s"
+                  pt="Baixando o Wine portátil %s (cerca de 100 MB) em %s"
+                  es="Descargando Wine portátil %s (unos 100 MB) en %s" ;;
+        portablefail) en="Could not download or verify the portable Wine. Check your internet connection, or install Wine 10 or newer and run again with WINE=/path/to/wine"
+                      pt="Não foi possível baixar ou verificar o Wine portátil. Verifique sua conexão, ou instale o Wine 10 ou mais novo e rode de novo com WINE=/caminho/do/wine"
+                      es="No se pudo descargar o verificar el Wine portátil. Revisa tu conexión, o instala Wine 10 o más reciente y vuelve a ejecutar con WINE=/ruta/a/wine" ;;
+        portablebroken) en="The portable Wine does not start on this system. Install Wine 10 or newer (e.g. via Flatpak, Distrobox or your package manager) and run again with WINE=/path/to/wine"
+                        pt="O Wine portátil não abre neste sistema. Instale o Wine 10 ou mais novo (por exemplo via Flatpak, Distrobox ou gerenciador de pacotes) e rode de novo com WINE=/caminho/do/wine"
+                        es="El Wine portátil no se inicia en este sistema. Instala Wine 10 o más reciente (por ejemplo con Flatpak, Distrobox o tu gestor de paquetes) y vuelve a ejecutar con WINE=/ruta/a/wine" ;;
+        needtool) en="'%s' is required but was not found. Install it and run again."
+                  pt="'%s' é necessário mas não foi encontrado. Instale e rode de novo."
+                  es="Se necesita '%s' pero no se encontró. Instálalo y vuelve a ejecutar." ;;
+        badarch) en="Only x86_64 (64-bit Intel/AMD) is supported; this machine is %s."
+                 pt="Só x86_64 (Intel/AMD 64 bits) é suportado; esta máquina é %s."
+                 es="Solo se admite x86_64 (Intel/AMD de 64 bits); esta máquina es %s." ;;
         ok) en="ok"
             pt="ok"
             es="ok" ;;
@@ -144,10 +178,22 @@ GunBound on Linux - https://github.com/$REPO
   WINEPREFIX=$WINEPREFIX
   WINE=$wine
   NCRYPT_DLL=/path/to/ncrypt.dll
+  PORTABLE_WINE=1          always use the portable Wine (no system packages)
 EOF
 }
 
 has() { command -v "$1" >/dev/null 2>&1; }
+
+# fetch URL DEST: download with curl, or wget when curl is missing.
+fetch() {
+    if has curl; then
+        curl -fL --retry 3 -o "$2" "$1" >&2
+    elif has wget; then
+        wget -O "$2" "$1" >&2
+    else
+        die needtool curl
+    fi
+}
 
 wait_server() {
     local server=wineserver
@@ -177,39 +223,88 @@ install_arch() {
     missing="$(pacman -T "${pkgs[@]}" || true)"
     [[ -z "$missing" ]] && return 0
     log sudo
-    sudo pacman -S --needed "${pkgs[@]}" || die multilib
+    sudo pacman -S --needed "${pkgs[@]}" || { warn multilib; return 1; }
 }
 
 install_apt() {
     local distro="$1" code="$2"
-    sudo apt-get update
-    sudo apt-get install -y curl ca-certificates gpg
+    sudo apt-get update || return 1
+    sudo apt-get install -y curl ca-certificates gpg xz-utils || return 1
     wine_ok && return 0
     local sources="https://dl.winehq.org/wine-builds/$distro/dists/$code/winehq-$code.sources"
     if [[ -n "$code" ]] && curl -fsIL "$sources" >/dev/null 2>&1; then
         log winehq
-        sudo dpkg --add-architecture i386
-        sudo mkdir -pm755 /etc/apt/keyrings
+        sudo dpkg --add-architecture i386 || return 1
+        sudo mkdir -pm755 /etc/apt/keyrings || return 1
         curl -fsSL https://dl.winehq.org/wine-builds/winehq.key |
-            sudo gpg --yes --dearmor -o /etc/apt/keyrings/winehq-archive.key
-        sudo curl -fsSL -o "/etc/apt/sources.list.d/winehq-$code.sources" "$sources"
-        sudo apt-get update
+            sudo gpg --yes --dearmor -o /etc/apt/keyrings/winehq-archive.key || return 1
+        sudo curl -fsSL -o "/etc/apt/sources.list.d/winehq-$code.sources" "$sources" || return 1
+        sudo apt-get update || return 1
         sudo apt-get install -y --install-recommends winehq-stable
     else
-        sudo dpkg --add-architecture i386
-        sudo apt-get update
+        sudo dpkg --add-architecture i386 || return 1
+        sudo apt-get update || return 1
         sudo apt-get install -y wine wine64 wine32
     fi
 }
 
-install_deps() {
-    local id like
-    like="$(os_field ID_LIKE)"
+# Prints a reason and succeeds when system packages can't (or shouldn't) be
+# installed: image-based/read-only systems.
+immutable_reason() {
+    local id variant
     id="$(os_field ID)"
-    if wine_ok && has curl && [[ " $id $like " != *" arch "* ]]; then
+    variant="$(os_field VARIANT_ID)"
+    if [[ -e /run/ostree-booted ]]; then
+        printf '%s' "${variant:-${id:-ostree}}"
+    elif [[ "$id" == steamos || "$id" == nixos || "$id" == opensuse-microos ||
+            "$id" == opensuse-aeon || "$id" == opensuse-kalpa || "$id" == endless ]]; then
+        printf '%s' "$id"
+    elif has abroot; then
+        printf '%s' "${id:-ABRoot}"
+    elif has transactional-update; then
+        printf '%s' "${id:-transactional-update}"
+    else
+        return 1
+    fi
+}
+
+install_portable_wine() {
+    local arch
+    arch="$(uname -m)"
+    [[ "$arch" == x86_64 ]] || die badarch "$arch"
+    has tar || die needtool tar
+    has xz || die needtool xz
+    has sha256sum || die needtool sha256sum
+    wine="$portable_dir/bin/wine"
+    if wine_ok; then
         log wineok "$(wine_major)"
         return 0
     fi
+    log portable "$PORTABLE_WINE_VERSION" "$portable_dir"
+    mkdir -p "$data_dir"
+    local archive="$data_dir/$PORTABLE_WINE_FILE.part" tmp="$data_dir/wine.tmp"
+    if ! fetch "$PORTABLE_WINE_URL" "$archive" ||
+        ! printf '%s  %s\n' "$PORTABLE_WINE_SHA256" "$archive" | sha256sum -c --status; then
+        rm -f "$archive"
+        die portablefail
+    fi
+    rm -rf "$tmp"
+    mkdir -p "$tmp"
+    if ! tar -xJf "$archive" -C "$tmp" --strip-components=1; then
+        rm -rf "$tmp" "$archive"
+        die portablefail
+    fi
+    rm -f "$archive"
+    rm -rf "$portable_dir"
+    mv "$tmp" "$portable_dir"
+    wine_ok || die portablebroken
+    log wineok "$(wine_major)"
+}
+
+install_system_wine() {
+    local id like
+    like="$(os_field ID_LIKE)"
+    id="$(os_field ID)"
     log deps "$(os_field PRETTY_NAME)"
     case " $id $like " in
         *" arch "*)
@@ -224,19 +319,55 @@ install_deps() {
             install_apt debian "$(os_field VERSION_CODENAME)" ;;
         *" fedora "*|*" rhel "*)
             log sudo
-            sudo dnf install -y wine curl ;;
+            sudo dnf install -y wine curl xz ;;
         *" suse "*|*" opensuse "*)
             log sudo
-            sudo zypper install -y wine curl ;;
+            sudo zypper install -y wine curl xz ;;
         *)
-            { has "$wine" && has curl; } || die unknown_distro ;;
+            return 1 ;;
     esac
-    has "$wine" || die nowine
+}
+
+install_deps() {
+    local id like reason
+    like="$(os_field ID_LIKE)"
+    id="$(os_field ID)"
+    # A portable Wine installed earlier is reused as is.
+    if [[ "$wine" == "$portable_dir/bin/wine" ]] && wine_ok; then
+        log wineok "$(wine_major)"
+        return 0
+    fi
+    if [[ -n "${PORTABLE_WINE:-}" && "${PORTABLE_WINE}" != 0 ]]; then
+        install_portable_wine
+        return
+    fi
+    if reason="$(immutable_reason)"; then
+        if wine_ok; then
+            log wineok "$(wine_major)"
+        else
+            log immutable "$reason"
+            install_portable_wine
+        fi
+        return
+    fi
+    if wine_ok && has curl && [[ " $id $like " != *" arch "* ]]; then
+        log wineok "$(wine_major)"
+        return 0
+    fi
+    install_system_wine || true
     if wine_ok; then
         log wineok "$(wine_major)"
-    else
-        warn oldwine "$(wine_major)"
+        return 0
     fi
+    # Wine is missing, too old, or the package manager failed: if the user
+    # pointed WINE at a specific binary, respect it; otherwise go portable.
+    if [[ -n "${WINE:-}" ]]; then
+        has "$wine" || die nowine
+        warn oldwine "$(wine_major)"
+        return 0
+    fi
+    warn pkgfail
+    install_portable_wine
 }
 
 is_pe() {
@@ -319,7 +450,7 @@ get_dll() {
     done
     log download >&2
     mkdir -p "$data_dir"
-    if curl -fL --retry 3 -o "$data_dir/ncrypt.dll.part" "$DLL_URL" >&2 && is_pe "$data_dir/ncrypt.dll.part"; then
+    if fetch "$DLL_URL" "$data_dir/ncrypt.dll.part" && is_pe "$data_dir/ncrypt.dll.part"; then
         mv -f "$data_dir/ncrypt.dll.part" "$data_dir/ncrypt.dll"
         printf '%s\n' "$data_dir/ncrypt.dll"
         return
@@ -342,6 +473,9 @@ install_ncrypt() {
 
 install_runtime() {
     mkdir -p "$data_dir" "$(dirname "$desktop_file")"
+    local env_wine=""
+    # Keep a custom WINE in the shortcut; the portable Wine is found on its own.
+    [[ -n "${WINE:-}" && "$wine" == */* ]] && env_wine=" WINE=\"$wine\""
     [[ "$here/gunbound-linux.sh" -ef "$data_dir/gunbound-linux.sh" ]] ||
         install -m 0755 "$here/gunbound-linux.sh" "$data_dir/gunbound-linux.sh"
     cat >"$desktop_file" <<EOF
@@ -349,7 +483,7 @@ install_runtime() {
 Type=Application
 Name=GunBound
 Comment=GunBound on Linux (Wine)
-Exec=env WINEPREFIX="$WINEPREFIX" "$data_dir/gunbound-linux.sh" run
+Exec=env WINEPREFIX="$WINEPREFIX"$env_wine "$data_dir/gunbound-linux.sh" run
 Icon=applications-games
 Categories=Game;
 Terminal=false

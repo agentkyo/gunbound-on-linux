@@ -57,7 +57,7 @@ Se o instalador estiver em outro lugar, passe o caminho: `./gunbound-linux.sh in
 | `./gunbound-linux.sh repair` | Reinstala o componente de compatibilidade, caso um update tenha apagado |
 | `./gunbound-linux.sh uninstall` | Remove o prefixo, o jogo e o atalho |
 
-Variáveis opcionais: `WINEPREFIX=/outro/prefixo` e `WINE=/caminho/do/wine`.
+Variáveis opcionais: `WINEPREFIX=/outro/prefixo`, `WINE=/caminho/do/wine` e `PORTABLE_WINE=1`.
 
 ### Distribuições suportadas
 
@@ -68,8 +68,9 @@ Variáveis opcionais: `WINEPREFIX=/outro/prefixo` e `WINE=/caminho/do/wine`.
 | Debian | Debian 12 e mais novos | repositório oficial do WineHQ (`winehq-stable`) |
 | Fedora | Fedora, Nobara | `dnf` |
 | openSUSE | Tumbleweed, Leap | `zypper` |
+| Imutáveis | Bazzite, Fedora Silverblue/Kinoite, Aurora, Bluefin, SteamOS, NixOS, openSUSE Aeon/MicroOS, Vanilla OS | Wine portátil 11.21 baixado para `~/.local/share/gunbound-linux/wine` (sem `sudo`, o sistema não é alterado) |
 
-Em outras distribuições, instale o Wine 10 ou mais novo e o `curl` e rode o script normalmente.
+Em qualquer outra distribuição, ou se o gerenciador de pacotes falhar ou só oferecer um Wine antigo, o script usa o mesmo Wine portátil automaticamente. Para forçar o Wine portátil: `PORTABLE_WINE=1 ./gunbound-linux.sh`. Requisitos: PC x86_64, `curl` (ou `wget`), `tar` e `xz`.
 
 ### Configuração testada
 
@@ -146,7 +147,7 @@ If the installer is somewhere else, pass its path: `./gunbound-linux.sh install 
 | `./gunbound-linux.sh repair` | Reinstalls the compatibility component if an update removed it |
 | `./gunbound-linux.sh uninstall` | Removes the prefix, the game and the shortcut |
 
-Optional variables: `WINEPREFIX=/other/prefix` and `WINE=/path/to/wine`.
+Optional variables: `WINEPREFIX=/other/prefix`, `WINE=/path/to/wine` and `PORTABLE_WINE=1`.
 
 ### Supported distributions
 
@@ -157,8 +158,9 @@ Optional variables: `WINEPREFIX=/other/prefix` and `WINE=/path/to/wine`.
 | Debian | Debian 12 and newer | official WineHQ repository (`winehq-stable`) |
 | Fedora | Fedora, Nobara | `dnf` |
 | openSUSE | Tumbleweed, Leap | `zypper` |
+| Immutable | Bazzite, Fedora Silverblue/Kinoite, Aurora, Bluefin, SteamOS, NixOS, openSUSE Aeon/MicroOS, Vanilla OS | portable Wine 11.21 downloaded to `~/.local/share/gunbound-linux/wine` (no `sudo`, the system is not changed) |
 
-On other distributions, install Wine 10 or newer and `curl`, then run the script as usual.
+On any other distribution, or if the package manager fails or only offers an old Wine, the script uses the same portable Wine automatically. To force the portable Wine: `PORTABLE_WINE=1 ./gunbound-linux.sh`. Requirements: an x86_64 PC, `curl` (or `wget`), `tar` and `xz`.
 
 ### Tested setup
 
@@ -235,7 +237,7 @@ Si el instalador está en otro lugar, pasa la ruta: `./gunbound-linux.sh install
 | `./gunbound-linux.sh repair` | Reinstala el componente de compatibilidad si una actualización lo borró |
 | `./gunbound-linux.sh uninstall` | Elimina el prefijo, el juego y el acceso directo |
 
-Variables opcionales: `WINEPREFIX=/otro/prefijo` y `WINE=/ruta/a/wine`.
+Variables opcionales: `WINEPREFIX=/otro/prefijo`, `WINE=/ruta/a/wine` y `PORTABLE_WINE=1`.
 
 ### Distribuciones compatibles
 
@@ -246,8 +248,9 @@ Variables opcionales: `WINEPREFIX=/otro/prefijo` y `WINE=/ruta/a/wine`.
 | Debian | Debian 12 y más recientes | repositorio oficial de WineHQ (`winehq-stable`) |
 | Fedora | Fedora, Nobara | `dnf` |
 | openSUSE | Tumbleweed, Leap | `zypper` |
+| Inmutables | Bazzite, Fedora Silverblue/Kinoite, Aurora, Bluefin, SteamOS, NixOS, openSUSE Aeon/MicroOS, Vanilla OS | Wine portátil 11.21 descargado en `~/.local/share/gunbound-linux/wine` (sin `sudo`, el sistema no se modifica) |
 
-En otras distribuciones, instala Wine 10 o más reciente y `curl`, y ejecuta el script normalmente.
+En cualquier otra distribución, o si el gestor de paquetes falla o solo ofrece un Wine antiguo, el script usa el mismo Wine portátil automáticamente. Para forzar el Wine portátil: `PORTABLE_WINE=1 ./gunbound-linux.sh`. Requisitos: PC x86_64, `curl` (o `wget`), `tar` y `xz`.
 
 ### Configuración probada
 
